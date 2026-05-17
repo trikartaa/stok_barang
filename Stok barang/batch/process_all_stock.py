@@ -8,8 +8,9 @@ def process_all_stock():
     
     # 1. KONFIGURASI
     target_files = [
-        'Stock - Souvenir.csv',
-        'Stock - Undangan.csv',
+        '1. LAPORAN STOCK TRIKARTA SOV .xlsx - Master Inv SOV.csv',
+        '2. LAPORAN STOCK TRIKARTA UND .xlsx - Master Inv UND.csv',
+        '3. LAPORAN STOCK TRIKARTA KEMASAN & PACKING.xlsx - Master Inv KEMASAN.csv',
         '4. LAPORAN STOCK TRIKARTA PITA & KAIN.xlsx - Master PITA & KAIN.csv',
         '5. LAPORAN STOCK TRIKARTA INVENTORY.xlsx - Master INV.csv'
     ]
@@ -121,6 +122,12 @@ def process_all_stock():
                 all_data_clean[filename].append(row)
 
     # 4. PROSES TAHAP 2: Generate SKU & Simpan Hasil
+    def add_backtick(value):
+        """Tambahkan backtick pada nilai yang dimulai dengan 0"""
+        if isinstance(value, str) and value.startswith('0'):
+            return f"`{value}"
+        return value
+    
     print("Menghasilkan SKU dan menyimpan file hasil...")
     for filename, rows in all_data_clean.items():
         if not rows: continue
@@ -146,6 +153,10 @@ def process_all_stock():
                 col_id = master['WARNA'][row['__col_name'].upper()][1] if row['__col_name'] else "000"
                 
                 row['SKU'] = f"TKR-{cat_id}{sub_id}-{mat_id}{col_id}"
+                # Apply backtick to values starting with 0
+                for field in header:
+                    if field in row and isinstance(row[field], str) and row[field].startswith('0'):
+                        row[field] = add_backtick(row[field])
                 writer.writerow(row)
         print(f"Berhasil: {output_name}")
 
@@ -154,16 +165,16 @@ def process_all_stock():
     with open(master_path, mode='w', encoding='utf-8', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(['Tipe', 'Induk 1 (Cat)', 'Induk 2 (Sub-Cat)', 'Nama Item', 'Kode Digit'])
-        for name, code in master['KATEGORI'].items(): writer.writerow(['KATEGORI', '-', '-', name, code])
+        for name, code in master['KATEGORI'].items(): writer.writerow(['KATEGORI', '-', '-', name, add_backtick(code)])
         for cid, subs in master['SUB_KATEGORI'].items():
             cname = [k for k, v in master['KATEGORI'].items() if v == cid][0]
-            for name, code in subs.items(): writer.writerow(['SUB_KATEGORI', cname, '-', name, code])
-        for upper, (orig, code) in master['WARNA'].items(): writer.writerow(['WARNA_GLOBAL', '-', '-', orig, code])
+            for name, code in subs.items(): writer.writerow(['SUB_KATEGORI', cname, '-', name, add_backtick(code)])
+        for upper, (orig, code) in master['WARNA'].items(): writer.writerow(['WARNA_GLOBAL', '-', '-', orig, add_backtick(code)])
         for cid, sub_data in master['MATERIAL'].items():
             cname = [k for k, v in master['KATEGORI'].items() if v == cid][0]
             for sid, materials in sub_data.items():
                 sname = [k for k, v in master['SUB_KATEGORI'][cid].items() if v == sid][0]
-                for name, code in materials.items(): writer.writerow(['MATERIAL', cname, sname, name, code])
+                for name, code in materials.items(): writer.writerow(['MATERIAL', cname, sname, name, add_backtick(code)])
     
     print(f"Dokumentasi Aturan Master diperbarui: {master_path}")
     print("\nPROSES SELESAI!")

@@ -33,14 +33,15 @@ def prepare_appsheet():
             code = str(row['Kode Digit']).zfill(3)
             
             if tipe == 'KATEGORI':
-                cid = f"CAT{code}"
+                cid = f"CAT{add_backtick(code) if code.startswith('0') else code}"
                 cat_to_id[name] = cid
                 categories.append({'CategoryID': cid, 'CategoryName': name, 'CategoryCode': code})
                 
             elif tipe == 'SUB_KATEGORI':
                 cat_name = row['Induk 1 (Cat)']
                 cid = cat_to_id[cat_name]
-                scid = f"SC{cid[3:]}{code}" 
+                code_with_backtick = add_backtick(code) if code.startswith('0') else code
+                scid = f"SC{cid[3:]}{code_with_backtick}" 
                 sub_to_id[(cat_name, name)] = scid
                 sub_categories.append({
                     'SubCategoryID': scid, 
@@ -50,7 +51,7 @@ def prepare_appsheet():
                 })
                 
             elif tipe == 'WARNA_GLOBAL':
-                coid = f"COL{code}"
+                coid = f"COL{add_backtick(code) if code.startswith('0') else code}"
                 col_to_id[name.upper()] = coid
                 colors.append({'ColorID': coid, 'ColorName': name, 'ColorCode': code})
                 
@@ -58,7 +59,8 @@ def prepare_appsheet():
                 cat_name = row['Induk 1 (Cat)']
                 sub_name = row['Induk 2 (Sub-Cat)']
                 scid = sub_to_id[(cat_name, sub_name)]
-                mid = f"MAT{scid[2:]}{code}" 
+                code_with_backtick = add_backtick(code) if code.startswith('0') else code
+                mid = f"MAT{scid[2:]}{code_with_backtick}" 
                 mat_to_id[(cat_name, sub_name, name)] = mid
                 materials.append({
                     'MaterialID': mid, 
@@ -70,8 +72,9 @@ def prepare_appsheet():
     # PROSES PRODUCTS
     print("Membaca file produk...")
     target_files = [
-        'Stock - Souvenir - with SKU.csv',
-        'Stock - Undangan - with SKU.csv',
+        '1. LAPORAN STOCK TRIKARTA SOV .xlsx - Master Inv SOV - with SKU.csv',
+        '2. LAPORAN STOCK TRIKARTA UND .xlsx - Master Inv UND - with SKU.csv',
+        '3. LAPORAN STOCK TRIKARTA KEMASAN & PACKING.xlsx - Master Inv KEMASAN - with SKU.csv',
         '4. LAPORAN STOCK TRIKARTA PITA & KAIN.xlsx - Master PITA & KAIN - with SKU.csv',
         '5. LAPORAN STOCK TRIKARTA INVENTORY.xlsx - Master INV - with SKU.csv'
     ]
@@ -124,19 +127,40 @@ def prepare_appsheet():
                 })
 
     # SAVE ALL FILES
+    def add_backtick(value):
+        """Tambahkan backtick pada nilai yang dimulai dengan 0"""
+        if isinstance(value, str) and value.startswith('0'):
+            return f"`{value}"
+        return value
+    
     def save_csv(filename, data, fields):
         path = os.path.join(base_dir, filename)
         with open(path, mode='w', encoding='utf-8', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fields, quoting=csv.QUOTE_NONNUMERIC)
+            writer = csv.DictWriter(f, fieldnames=fields, quoting=csv.QUOTE_NONNUMERIC, extrasaction='ignore')
             writer.writeheader()
+            # Apply backtick to values starting with 0
+            for row in data:
+                for field in fields:
+                    if field in row and isinstance(row[field], str) and row[field].startswith('0'):
+                        row[field] = add_backtick(row[field])
             writer.writerows(data)
         print(f"Berhasil dibuat: {filename}")
 
+    # Apply backtick to category codes
+    for cat in categories:
+        cat['CategoryCode'] = add_backtick(cat['CategoryCode'])
+    for sub in sub_categories:
+        sub['SubCategoryCode'] = add_backtick(sub['SubCategoryCode'])
+    for mat in materials:
+        mat['MaterialCode'] = add_backtick(mat['MaterialCode'])
+    for col in colors:
+        col['ColorCode'] = add_backtick(col['ColorCode'])
+    
     save_csv('AppSheet_Categories.csv', categories, ['CategoryID', 'CategoryName', 'CategoryCode'])
     save_csv('AppSheet_SubCategories.csv', sub_categories, ['SubCategoryID', 'CategoryID', 'SubCategoryName', 'SubCategoryCode'])
     save_csv('AppSheet_Materials.csv', materials, ['MaterialID', 'SubCategoryID', 'MaterialName', 'MaterialCode'])
     save_csv('AppSheet_Colors.csv', colors, ['ColorID', 'ColorName', 'ColorCode'])
-    save_csv('AppSheet_Products.csv', products, ['SKU', 'OriginalName', 'CategoryID', 'SubCategoryID', 'MaterialID', 'ColorID', 'StockQty'])
+    save_csv('AppSheet_Products.csv', products, ['SKU', 'OriginalName'])
 
 if __name__ == "__main__":
     prepare_appsheet()

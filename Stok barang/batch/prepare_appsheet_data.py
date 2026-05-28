@@ -23,50 +23,55 @@ def prepare_appsheet():
     mat_to_id = {}
     col_to_id = {}
 
-    print("Membaca Master Rules (Memastikan format teks untuk Code)...")
+    def add_backtick(value):
+        """Tambahkan backtick pada nilai yang dimulai dengan 0"""
+        if isinstance(value, str) and value.startswith('0'):
+            return f"`{value}"
+        return str(value)
+
+    print("Membaca Master Rules...")
     with open(master_file, mode='r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
             tipe = row['Tipe']
             name = row['Nama Item']
-            # Pastikan code adalah string 3 digit
-            code = str(row['Kode Digit']).zfill(3)
+            code_raw = row['Kode Digit'].replace('`', '')
+            code = code_raw.zfill(3)
             
             if tipe == 'KATEGORI':
-                cid = f"CAT{add_backtick(code) if code.startswith('0') else code}"
+                cid = f"CAT{code}"
                 cat_to_id[name] = cid
-                categories.append({'CategoryID': cid, 'CategoryName': name, 'CategoryCode': code})
+                categories.append({'CategoryID': cid, 'CategoryName': name, 'CategoryCode': add_backtick(code)})
                 
             elif tipe == 'SUB_KATEGORI':
-                cat_name = row['Induk 1 (Cat)']
-                cid = cat_to_id[cat_name]
-                code_with_backtick = add_backtick(code) if code.startswith('0') else code
-                scid = f"SC{cid[3:]}{code_with_backtick}" 
-                sub_to_id[(cat_name, name)] = scid
+                # Sub-Category now is global/not strictly tied to one category in the ID
+                scid = f"SC{code}" 
+                sub_to_id[name.upper()] = scid
                 sub_categories.append({
                     'SubCategoryID': scid, 
-                    'CategoryID': cid, 
                     'SubCategoryName': name, 
-                    'SubCategoryCode': code
+                    'SubCategoryCode': add_backtick(code)
                 })
                 
             elif tipe == 'WARNA_GLOBAL':
-                coid = f"COL{add_backtick(code) if code.startswith('0') else code}"
+                coid = f"COL{code}"
                 col_to_id[name.upper()] = coid
-                colors.append({'ColorID': coid, 'ColorName': name, 'ColorCode': code})
+                colors.append({'ColorID': coid, 'ColorName': name, 'ColorCode': add_backtick(code)})
                 
             elif tipe == 'MATERIAL':
                 cat_name = row['Induk 1 (Cat)']
-                sub_name = row['Induk 2 (Sub-Cat)']
-                scid = sub_to_id[(cat_name, sub_name)]
-                code_with_backtick = add_backtick(code) if code.startswith('0') else code
-                mid = f"MAT{scid[2:]}{code_with_backtick}" 
+                sub_name = row['Induk 2 (Sub-Cat)'].upper()
+                cid = cat_to_id.get(cat_name, "CAT000")
+                scid = sub_to_id.get(sub_name, "SC000")
+                
+                mid = f"MAT{cid[3:]}{scid[2:]}{code}" 
                 mat_to_id[(cat_name, sub_name, name)] = mid
                 materials.append({
                     'MaterialID': mid, 
                     'SubCategoryID': scid, 
+                    'CategoryID': cid,
                     'MaterialName': name, 
-                    'MaterialCode': code
+                    'MaterialCode': add_backtick(code)
                 })
 
     # PROSES PRODUCTS
@@ -79,88 +84,60 @@ def prepare_appsheet():
         '5. LAPORAN STOCK TRIKARTA INVENTORY.xlsx - Master INV - with SKU.csv'
     ]
 
-    def clean_name(full_name, sub_cat):
-        pattern = re.compile(re.escape(sub_cat), re.IGNORECASE)
-        cleaned = pattern.sub('', full_name).strip()
-        cleaned = re.sub(r'^-+', '', cleaned).strip()
-        cleaned = re.sub(r'-+$', '', cleaned).strip()
-        cleaned = re.sub(r'\s*-+\s*', ' ', cleaned)
-        return " ".join(cleaned.split()).strip()
-
-    def extract_color(name, color_list):
-        words = name.split()
-        mat_words, found_colors = [], []
-        for word in words:
-            clean_word = re.sub(r'[^a-zA-Z-]', '', word).upper()
-            if clean_word in color_list:
-                color_name = 'Random' if clean_word in ['MIX', 'RANDOM'] else word
-                found_colors.append(color_name)
-            else:
-                mat_words.append(word)
-        mat = " ".join(mat_words).strip()
-        mat = re.sub(r'^-+', '', mat).strip()
-        mat = re.sub(r'-+$', '', mat).strip()
-        return mat, " ".join(found_colors).strip()
-
-    color_names_upper = list(col_to_id.keys())
-
     for filename in target_files:
         file_path = os.path.join(base_dir, filename)
         if not os.path.exists(file_path): continue
         with open(file_path, mode='r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
+            # Re-read to get raw names for matching
             for row in reader:
-                cat, sub, orig = row['Kategori'], row['Sub Kategori'], row['Nama Barang']
-                sku = row['SKU']
-                cleaned = clean_name(orig, sub)
-                mat, col = extract_color(cleaned, color_names_upper)
-                if not mat and not col: mat = cleaned if cleaned else orig
+                cat = row['Kategori']
+                sub = row['Sub Kategori'].upper().strip()
+                orig = row['Nama Barang']
+                sku = row['SKU'].replace('`', '')
+                
+                # Logic to find which material name was used
+                # In the new script, we saved metadata in SKU or can derive it
+                # But easiest is to use the MaterialID from SKU parts
+                sku_parts = sku.split('-')
+                if len(sku_parts) >= 3:
+                    mat_code = sku_parts[2][:3]
+                    col_code = sku_parts[2][3:]
+                else:
+                    mat_code = "000"
+                    col_code = "000"
+
+                # Find Material Name from code
+                mat_name = "Default"
+                for (c, s, m), mid in mat_to_id.items():
+                    if c == cat and s == sub and mid.endswith(mat_code):
+                        mat_name = m
+                        break
                 
                 products.append({
-                    'SKU': sku,
+                    'SKU': add_backtick(sku) if sku.startswith('0') else sku,
                     'OriginalName': orig,
                     'CategoryID': cat_to_id.get(cat),
-                    'SubCategoryID': sub_to_id.get((cat, sub)),
-                    'MaterialID': mat_to_id.get((cat, sub, mat)),
-                    'ColorID': col_to_id.get(col.upper()) if col else None,
+                    'SubCategoryID': sub_to_id.get(sub),
+                    'MaterialID': mat_to_id.get((cat, sub, mat_name)),
+                    'ColorID': f"COL{col_code}" if col_code != "000" else None,
                     'StockQty': 0
                 })
 
     # SAVE ALL FILES
-    def add_backtick(value):
-        """Tambahkan backtick pada nilai yang dimulai dengan 0"""
-        if isinstance(value, str) and value.startswith('0'):
-            return f"`{value}"
-        return value
-    
     def save_csv(filename, data, fields):
         path = os.path.join(base_dir, filename)
         with open(path, mode='w', encoding='utf-8', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=fields, quoting=csv.QUOTE_NONNUMERIC, extrasaction='ignore')
             writer.writeheader()
-            # Apply backtick to values starting with 0
-            for row in data:
-                for field in fields:
-                    if field in row and isinstance(row[field], str) and row[field].startswith('0'):
-                        row[field] = add_backtick(row[field])
             writer.writerows(data)
         print(f"Berhasil dibuat: {filename}")
 
-    # Apply backtick to category codes
-    for cat in categories:
-        cat['CategoryCode'] = add_backtick(cat['CategoryCode'])
-    for sub in sub_categories:
-        sub['SubCategoryCode'] = add_backtick(sub['SubCategoryCode'])
-    for mat in materials:
-        mat['MaterialCode'] = add_backtick(mat['MaterialCode'])
-    for col in colors:
-        col['ColorCode'] = add_backtick(col['ColorCode'])
-    
     save_csv('AppSheet_Categories.csv', categories, ['CategoryID', 'CategoryName', 'CategoryCode'])
-    save_csv('AppSheet_SubCategories.csv', sub_categories, ['SubCategoryID', 'CategoryID', 'SubCategoryName', 'SubCategoryCode'])
-    save_csv('AppSheet_Materials.csv', materials, ['MaterialID', 'SubCategoryID', 'MaterialName', 'MaterialCode'])
+    save_csv('AppSheet_SubCategories.csv', sub_categories, ['SubCategoryID', 'SubCategoryName', 'SubCategoryCode'])
+    save_csv('AppSheet_Materials.csv', materials, ['MaterialID', 'SubCategoryID', 'CategoryID', 'MaterialName', 'MaterialCode'])
     save_csv('AppSheet_Colors.csv', colors, ['ColorID', 'ColorName', 'ColorCode'])
-    save_csv('AppSheet_Products.csv', products, ['SKU', 'OriginalName'])
+    save_csv('AppSheet_Products.csv', products, ['SKU', 'OriginalName', 'CategoryID', 'SubCategoryID', 'MaterialID', 'ColorID'])
 
 if __name__ == "__main__":
     prepare_appsheet()

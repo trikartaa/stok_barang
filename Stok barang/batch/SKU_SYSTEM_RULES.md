@@ -69,9 +69,9 @@ Material ditentukan menggunakan sistem **Range 100**. Angka digit pertama menent
 ## 5. Aturan Kode Warna (Variasi Unik)
 Sistem menggunakan pendekatan **Varian Unik**. Setiap kombinasi detail motif/warna dianggap sebagai satu identitas unik untuk akurasi stok.
 
-- **Logika:** Segala teks yang tersisa setelah nama Sub-Kategori dan Material dihapus akan dianggap sebagai Nama Variasi.
-- **Pembersihan:** Inisial material seperti `R` (pada Handsoap Resin) akan dihapus dari nama variasi agar lebih rapi.
-- **Daftar Kode:** Kode warna dibuat otomatis secara berurutan (`001`, `002`, dst) berdasarkan kemunculan variasi unik baru di dalam data.
+- **Logika:** Sistem akan mengambil teks dari Nama Barang, menghapus nama Sub-Kategori dan kata kunci Material, kemudian **menyaring** kata-kata yang tersisa agar hanya menyertakan kata kunci warna atau motif yang terdaftar (misalnya: PUTIH, GOLD, GUCCI, BUNGA).
+- **Pembersihan:** Kata-kata yang tidak terkait warna/motif (seperti ukuran '30ml', tipe 'tutup', atau deskripsi teknis lainnya) akan dibuang dari Nama Variasi untuk menjaga kebersihan data di AppSheet.
+- **Daftar Kode:** Kode warna dibuat otomatis secara berurutan (`001`, `002`, dst) berdasarkan kombinasi warna/motif unik yang telah disaring. Jika tidak ditemukan kata kunci warna, akan menggunakan `DEFAULT`.
 
 ### Contoh Kasus:
 1. `HANDSOAP R GUCCI NATURAL`

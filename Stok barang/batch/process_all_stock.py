@@ -20,15 +20,20 @@ def process_all_stock():
         'PUTIH', 'HITAM', 'MERAH', 'BIRU', 'KUNING', 'HIJAU', 'COKLAT', 
         'ABU', 'ABU-ABU', 'ORANGE', 'ORANYE', 'UNGU', 'PINK', 'GOLD', 
         'SILVER', 'BENING', 'TRANSPARAN', 'NAVY', 'KREM', 'IVORY', 
-        'ROSEGOLD', 'RAINBOW', 'MARBLE', 'DOFF', 'GLOSSY', 'RANDOM', 'MIX',
+        'ROSEGOLD', 'ROSE', 'RAINBOW', 'MARBLE', 'DOFF', 'GLOSSY', 'RANDOM', 'MIX',
         'COKSU', 'CREAM', 'MARON', 'BURGUNDY', 'FUSIA', 'ARMY', 'MINT', 'EMERALD',
         'NATURAL', 'TULANG', 'TOSCA', 'LAVENDER', 'LILAC', 'MAGENTA', 'PEACH',
         'SOFT', 'BRONZE', 'COPPER', 'CHAMPAGNE', 'BEIGE', 'KHAKI', 'TAN',
-        'MATTE', 'TERRAZZO', 'RAINBOW', 'WOOD', 'KAYU', 'JERAMI', 'BINTIK'
+        'MATTE', 'TERRAZZO', 'WOOD', 'KAYU', 'JERAMI', 'BINTIK', 'JATI',
+        'COFFEE', 'COFFE'
     ]
     
     # Keywords that indicate a complex variation but should be part of "Color/Pattern"
-    PATTERN_KEYWORDS = ['BUNGA', 'DAUN', 'FULL', 'MAWAR', 'DADU', 'GUCCI', 'SAKURA', 'MERRY', 'MARBLE', 'EMBOS', 'UKIR']
+    PATTERN_KEYWORDS = [
+        'BUNGA', 'DAUN', 'FULL', 'MAWAR', 'DADU', 'GUCCI', 'SAKURA', 'MERRY', 
+        'MARBLE', 'EMBOS', 'UKIR', 'LIST', 'POLOS', 'MOTIF', 'PRINTING', 
+        'TEKSTUR', 'ANYAMAN', 'GLITER', 'KOTAK', 'GARIS', 'ANTIS', 'BINTIK'
+    ]
 
     # Material Range Mapping
     MATERIAL_OFFSETS = {
@@ -52,7 +57,7 @@ def process_all_stock():
         'KATEGORI': {}, 
         'SUB_KATEGORI': SUB_CAT_ID_MAP.copy(), 
         'MATERIAL': {}, 
-        'WARNA': {} # Global Unique Variations
+        'WARNA': {'DEFAULT': ('Default', '000')} # Global Unique Variations
     }
     counters = {'cat': 0, 'color': 0}
     
@@ -66,6 +71,31 @@ def process_all_stock():
         cleaned = re.sub(r'-+$', '', cleaned).strip()
         cleaned = re.sub(r'\s*-+\s*', ' ', cleaned)
         return " ".join(cleaned.split()).strip()
+
+    def get_core_name(full_name, sub_cat_upper, mat_keyword):
+        """
+        Extracts the most unique part of the name for Material grouping.
+        """
+        # 1. Remove Sub-Category
+        name = clean_name(full_name, sub_cat_upper)
+        
+        # 2. Remove Material
+        if mat_keyword:
+            if mat_keyword == 'RESIN':
+                name = re.sub(r'\bRESIN\b|\bR\b', '', name, flags=re.IGNORECASE).strip()
+            else:
+                name = re.sub(re.escape(mat_keyword), '', name, flags=re.IGNORECASE).strip()
+        
+        # 3. Remove Color/Pattern Keywords to get the "Core"
+        words = name.split()
+        core_words = []
+        for word in words:
+            w_match = re.sub(r'[^a-zA-Z]', '', word).upper()
+            if w_match not in COLOR_KEYWORDS and w_match not in PATTERN_KEYWORDS:
+                core_words.append(word)
+        
+        core = " ".join(core_words).strip()
+        return core if core else "Default"
 
     def get_material_info(name, sub_cat_upper):
         name_upper = name.upper()
@@ -165,23 +195,39 @@ def process_all_stock():
                 sub_cat_name = row['Sub Kategori'].upper().strip()
                 orig_name = row['Nama Barang']
                 
-                # 1. Clean material from name for MaterialID
+                # 1. Identify material type and offset
                 mat_keyword, offset = get_material_info(orig_name, sub_cat_name)
                 
-                # 2. Extract Variation (The "Unique Color/Pattern")
-                # We use a pattern: remove sub-cat name, then split material from color
-                cleaned_from_sub = clean_name(orig_name, sub_cat_name)
+                # 2. Extract components
+                # Cleaned name after removing sub-category
+                cleaned_name = clean_name(orig_name, sub_cat_name)
                 
-                # Identify Material Word to remove it from "Variation"
-                variation = cleaned_from_sub
+                # Variation part (COLOR + PATTERN only)
+                var_words = []
+                # Core part (Everything else)
+                core_words = []
+                
+                # Temp name for word splitting (remove material keyword from core logic)
+                temp_name = cleaned_name
                 if mat_keyword:
                     if mat_keyword == 'RESIN':
-                        variation = re.sub(r'\bRESIN\b|\bR\b', '', variation, flags=re.IGNORECASE).strip()
+                        temp_name = re.sub(r'\bRESIN\b|\bR\b', '', temp_name, flags=re.IGNORECASE).strip()
                     else:
-                        variation = re.sub(re.escape(mat_keyword), '', variation, flags=re.IGNORECASE).strip()
+                        temp_name = re.sub(re.escape(mat_keyword), '', temp_name, flags=re.IGNORECASE).strip()
                 
-                # What's left in 'variation' is our Unique Variation (e.g., "GUCCI PUTIH TULANG BUNGA PINK DAUN HIJAU")
+                for word in temp_name.split():
+                    w_match = re.sub(r'[^a-zA-Z]', '', word).upper()
+                    if w_match in COLOR_KEYWORDS or w_match in PATTERN_KEYWORDS:
+                        var_words.append(word)
+                    else:
+                        core_words.append(word)
                 
+                variation = " ".join(var_words).strip()
+                if not variation: variation = "DEFAULT"
+                
+                mat_group_name = " ".join(core_words).strip()
+                if not mat_group_name: mat_group_name = "Default"
+
                 # 3. Update Master
                 if cat_name not in master['KATEGORI']:
                     counters['cat'] += 1
@@ -196,15 +242,6 @@ def process_all_stock():
                 if cat_id not in master['MATERIAL']: master['MATERIAL'][cat_id] = {}
                 if sub_id not in master['MATERIAL'][cat_id]: master['MATERIAL'][cat_id][sub_id] = {}
                 
-                # Material Name (Core name without variation)
-                # For MaterialID, we use the cleaned variation's first word or something stable
-                # Actually, the user wants the whole "Variation" as the "Unique ID"
-                # Let's use the first word of the variation as the "Material Name" to group them,
-                # and the whole variation as the "Color/Variation".
-                
-                var_parts = variation.split()
-                mat_group_name = var_parts[0] if var_parts else "Default"
-                
                 if mat_group_name not in master['MATERIAL'][cat_id][sub_id]:
                     current_materials = master['MATERIAL'][cat_id][sub_id]
                     range_materials = [int(v) for v in current_materials.values() if offset < int(v) <= (offset + 100)]
@@ -213,7 +250,6 @@ def process_all_stock():
                 
                 # Color (Unique Variation)
                 col_key = variation.upper().strip()
-                if not col_key: col_key = "DEFAULT"
                 if col_key not in master['WARNA']:
                     counters['color'] += 1
                     master['WARNA'][col_key] = (variation if variation else "Default", f"{counters['color']:03}")
@@ -238,20 +274,23 @@ def process_all_stock():
         output_name = filename.replace('.csv', ' - with SKU.csv')
         
         output_path = os.path.join(base_dir, output_name)
-        with open(output_path, mode='w', encoding='utf-8', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=header, extrasaction='ignore')
-            writer.writeheader()
-            for row in rows:
-                cat_id = master['KATEGORI'][row['Kategori']]
-                sub_id = row['__sub_id']
-                mat_id = row['__mat_id']
-                col_id = master['WARNA'][row['__variation_key']][1]
-                
-                row['SKU'] = f"TKR-{cat_id}{sub_id}-{mat_id}{col_id}"
-                for field in header:
-                    if field in row and isinstance(row[field], str) and row[field].startswith('0'):
-                        row[field] = add_backtick(row[field])
-                writer.writerow(row)
+        try:
+            with open(output_path, mode='w', encoding='utf-8', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=header, extrasaction='ignore')
+                writer.writeheader()
+                for row in rows:
+                    cat_id = master['KATEGORI'][row['Kategori']]
+                    sub_id = row['__sub_id']
+                    mat_id = row['__mat_id']
+                    col_id = master['WARNA'][row['__variation_key']][1]
+                    
+                    row['SKU'] = f"TKR-{cat_id}{sub_id}-{mat_id}{col_id}"
+                    for field in header:
+                        if field in row and isinstance(row[field], str) and row[field].startswith('0'):
+                            row[field] = add_backtick(row[field])
+                    writer.writerow(row)
+        except PermissionError:
+            print(f"Warning: Tidak bisa menulis ke {output_name} (File mungkin sedang terbuka).")
 
     # 5. MASTER RULES
     master_path = os.path.join(base_dir, 'MASTER_SKU_RULES.csv')
